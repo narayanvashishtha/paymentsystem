@@ -2,6 +2,7 @@ package com.example.narayan.paymentsystem.service;
 
 import com.example.narayan.paymentsystem.dto.PaymentRequestDto;
 import com.example.narayan.paymentsystem.dto.PaymentResponseDto;
+import com.example.narayan.paymentsystem.exception.PaymentNotFound;
 import com.example.narayan.paymentsystem.model.Payment;
 import com.example.narayan.paymentsystem.model.enums.PaymentMethodType;
 import com.example.narayan.paymentsystem.model.enums.PaymentStatus;
@@ -69,24 +70,38 @@ public class PaymentService {
         paymentResponseDto.setCurrency(payment.getCurrency());
         paymentResponseDto.setGatewayTransactionId(payment.getGatewayTransactionId());
 
-        switch (payment.getStatus()){
-            case PENDING :
-                paymentResponseDto.setMessage("Payment is pending. Awaiting processing.");
-                break;
-            case FAILED :
-                paymentResponseDto.setMessage(payment.getFailureReason() != null ? payment.getFailureReason() : "Payment failed.");
-                break;
-            case SUCCESS : paymentResponseDto.setMessage("Payment was successful.");
-                break;
-            default : paymentResponseDto.setMessage("Unknown payment status.");
-        }
+        paymentResponseDto.setMessage(buildPaymentMessage(payment));
 
         return paymentResponseDto;
     }
 
-    //Fetching payment status by paymentID
-    public PaymentResponseDto paymentStatus(UUID paymentId){
-        Payment payment = paymentGatewayService.processPayment(paymentId);
-        return mapToResponse(payment);
+    public PaymentResponseDto getPaymentById(UUID id) {
+        Payment payment =  paymentRepository.findById(id).orElseThrow(() -> new PaymentNotFound("Payment not found"));
+
+        PaymentResponseDto paymentResponseDto = new PaymentResponseDto();
+        paymentResponseDto.setStatus(payment.getStatus());
+        paymentResponseDto.setMessage(buildPaymentMessage(payment));
+        paymentResponseDto.setFailureReason(payment.getFailureReason());
+        paymentResponseDto.setCompletedAt(payment.getCompletedAt());
+
+        return paymentResponseDto;
+    }
+
+    public String buildPaymentMessage(Payment payment) {
+
+        switch (payment.getStatus()) {
+            case PENDING:
+                return ("Payment is pending. Awaiting processing.");
+            case PROCESSING:
+                return ("Payment is currently being processed.");
+            case SUCCESS:
+                return ("Payment was successful.");
+            case FAILED:
+                return (payment.getFailureReason() != null ? payment.getFailureReason() : "Payment failed.");
+            case CANCELLED:
+                return ("Payment was cancelled.");
+            default:
+                return ("Unknown payment status.");
+        }
     }
 }

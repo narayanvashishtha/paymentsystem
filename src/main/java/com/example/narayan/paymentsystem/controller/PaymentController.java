@@ -2,6 +2,8 @@ package com.example.narayan.paymentsystem.controller;
 
 import com.example.narayan.paymentsystem.dto.PaymentRequestDto;
 import com.example.narayan.paymentsystem.dto.PaymentResponseDto;
+import com.example.narayan.paymentsystem.model.Payment;
+import com.example.narayan.paymentsystem.service.PaymentGatewayService;
 import com.example.narayan.paymentsystem.service.PaymentService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,17 +19,21 @@ public class PaymentController {
 
     @Autowired
     PaymentService paymentService;
+    @Autowired
+    PaymentGatewayService paymentGatewayService;
 
     @PostMapping("/payments")
-    private ResponseEntity<?> makepayment(@Valid @RequestBody PaymentRequestDto paymentRequestDto) {
+    private ResponseEntity<PaymentResponseDto> makepayment(@Valid @RequestBody PaymentRequestDto paymentRequestDto) {
         PaymentResponseDto responseDto = paymentService.initiatePayment(paymentRequestDto);
+
+        Payment processed = paymentGatewayService.processPayment(responseDto.getPaymentId());
         return ResponseEntity.ok(responseDto);
 
     }
 
     @GetMapping("/payments/{paymentId}")
-    private ResponseEntity<?> getstatus(@PathVariable UUID paymentId) {
-        PaymentResponseDto response = paymentService.paymentStatus(paymentId);
+    private ResponseEntity<PaymentResponseDto> getstatus(@PathVariable UUID paymentId) {
+        PaymentResponseDto response = paymentService.getPaymentById(paymentId);
         return ResponseEntity.ok(response);
     }
 }

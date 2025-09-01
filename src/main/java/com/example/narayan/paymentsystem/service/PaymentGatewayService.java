@@ -20,14 +20,14 @@ public class PaymentGatewayService {
     public Payment processPayment(UUID paymentId) {
         Payment payment = paymentRepository.findById(paymentId).orElseThrow(() -> new PaymentNotFound("Payment not found"));
 
+        payment.setStatus(PaymentStatus.PROCESSING);
+        paymentRepository.save(payment);
+
         Random random = new Random();
         //Randomly succeed or fail
         boolean success = random.nextBoolean();
 
         if(success) {
-            payment.setStatus(PaymentStatus.SUCCESS);
-            payment.setGatewayTransactionId("TXN" + System.currentTimeMillis());
-        } if (success) {
             payment.setStatus(PaymentStatus.SUCCESS);
             payment.setGatewayTransactionId("TXN" + System.currentTimeMillis());
         } else {
@@ -44,8 +44,6 @@ public class PaymentGatewayService {
                     payment.setFailureReason("Unknown payment error");
             }
         }
-
-
         payment.setCompletedAt(java.time.LocalDateTime.now());
         paymentRepository.save(payment);
         return payment;
