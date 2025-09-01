@@ -6,11 +6,15 @@ import com.example.narayan.paymentsystem.exception.PaymentNotFound;
 import com.example.narayan.paymentsystem.model.Payment;
 import com.example.narayan.paymentsystem.model.enums.PaymentMethodType;
 import com.example.narayan.paymentsystem.model.enums.PaymentStatus;
+import com.example.narayan.paymentsystem.queue.JobQueue;
+import com.example.narayan.paymentsystem.queue.jobs.PaymentJob;
 import com.example.narayan.paymentsystem.repository.PaymentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.AutoConfigureOrder;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
+import java.util.concurrent.*;
 
 @Service
 public class PaymentService {
@@ -23,6 +27,8 @@ public class PaymentService {
     CardValidationService cardValidationService;
     @Autowired
     UPIValidationService upiValidationService;
+    @Autowired
+    JobQueue jobQueue;
 
     //Initiate the payment and save in the db
     public PaymentResponseDto initiatePayment(PaymentRequestDto paymentRequestDto){
@@ -51,12 +57,30 @@ public class PaymentService {
         } else {
             payment.setIdempotencyKey(UUID.randomUUID().toString());
         }
-
         payment.setUser_id(UUID.randomUUID());  // from authenticated session
         payment.setStatus(PaymentStatus.PENDING);
 
         Payment saved = paymentRepository.save(payment);
 
+        try {
+            //Fast path - try gateway call with timeout
+            boolean processed = tryImmediateProcessing(saved);
+            if(processed){
+                mapToResponse(saved);
+            }
+            else{
+                saved.setStatus(PaymentStatus.PROCESSING);
+                paymentRepository.save(saved);
+                jobQueue.enqueue(PaymentJob.of(saved.getId()));
+                return mapToResponse(saved);
+            }
+        }
+        catch (Exception e){
+            saved.setStatus(PaymentStatus.PROCESSING);
+            paymentRepository.save(saved);
+            jobQueue.enqueue(PaymentJob.of(saved.getId()));
+            return mapToResponse(saved);
+        }
         return mapToResponse(saved);
     }
 
@@ -73,6 +97,34 @@ public class PaymentService {
         paymentResponseDto.setMessage(buildPaymentMessage(payment));
 
         return paymentResponseDto;
+    }
+    public boolean tryImmediateProcessing(Payment payment){
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CompletableFuture<Boolean> future = CompletableFuture.supplyAsync(() ->{
+            try{
+                paymentGatewayService.processPayment(payment.getId());
+                payment.setStatus(PaymentStatus.SUCCESS);
+                paymentRepository.save(payment);
+                return true;
+            }
+            catch (Exception e){
+                return false;
+            }
+        }, executor);
+
+        try {
+            return future.get(2, TimeUnit.SECONDS);
+        }
+        catch (TimeoutException e){
+            future.cancel(true);
+            return false;
+        }
+        catch (Exception e) {
+            return false;
+        }
+        finally {
+            executor.shutdown();
+        }
     }
 
     public PaymentResponseDto getPaymentById(UUID id) {
