@@ -26,6 +26,11 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
             while (true) {
                 try {
                     PaymentJob job = jobQueue.dequeue();
+                    if (job == null) {
+                        //No job available, wait a bit before polling again
+                        Thread.sleep(1000);
+                        continue;
+                    }
                     process(job);
                 } catch (Exception e) {
                     e.printStackTrace();

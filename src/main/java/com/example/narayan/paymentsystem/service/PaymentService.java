@@ -90,6 +90,7 @@ public class PaymentService {
 
         paymentResponseDto.setPaymentId(payment.getId());
         paymentResponseDto.setCompletedAt(payment.getCompletedAt());
+        paymentResponseDto.setStatus(payment.getStatus());
         paymentResponseDto.setFailureReason(payment.getFailureReason());
         paymentResponseDto.setAmount(payment.getAmount());
         paymentResponseDto.setCurrency(payment.getCurrency());
@@ -132,10 +133,13 @@ public class PaymentService {
         Payment payment =  paymentRepository.findById(id).orElseThrow(() -> new PaymentNotFound("Payment not found"));
 
         PaymentResponseDto paymentResponseDto = new PaymentResponseDto();
+        paymentResponseDto.setPaymentId(payment.getId());
         paymentResponseDto.setStatus(payment.getStatus());
         paymentResponseDto.setMessage(buildPaymentMessage(payment));
         paymentResponseDto.setFailureReason(payment.getFailureReason());
         paymentResponseDto.setCompletedAt(payment.getCompletedAt());
+        paymentResponseDto.setAmount(payment.getAmount());
+        paymentResponseDto.setCurrency(payment.getCurrency());
 
         return paymentResponseDto;
     }

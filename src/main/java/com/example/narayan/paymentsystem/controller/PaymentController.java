@@ -26,9 +26,7 @@ public class PaymentController {
     private ResponseEntity<PaymentResponseDto> makepayment(@Valid @RequestBody PaymentRequestDto paymentRequestDto) {
         PaymentResponseDto responseDto = paymentService.initiatePayment(paymentRequestDto);
 
-        Payment processed = paymentGatewayService.processPayment(responseDto.getPaymentId());
         return ResponseEntity.ok(responseDto);
-
     }
 
     @GetMapping("/payments/{paymentId}")
