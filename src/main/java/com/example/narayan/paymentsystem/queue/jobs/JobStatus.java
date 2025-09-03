@@ -5,5 +5,6 @@ public enum JobStatus {
     PROCESSING,
     COMPLETED,
     FAILED,
-    RETRY_SCHEDULED
+    RETRY_SCHEDULED,
+    SKIPPED
 }

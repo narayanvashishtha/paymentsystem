@@ -7,6 +7,7 @@ import com.example.narayan.paymentsystem.model.Payment;
 import com.example.narayan.paymentsystem.model.enums.PaymentMethodType;
 import com.example.narayan.paymentsystem.model.enums.PaymentStatus;
 import com.example.narayan.paymentsystem.queue.JobQueue;
+import com.example.narayan.paymentsystem.queue.RedisPriorityJobQueue;
 import com.example.narayan.paymentsystem.queue.jobs.PaymentJob;
 import com.example.narayan.paymentsystem.repository.PaymentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,7 +29,7 @@ public class PaymentService {
     @Autowired
     UPIValidationService upiValidationService;
     @Autowired
-    JobQueue jobQueue;
+    RedisPriorityJobQueue jobQueue;
 
     //Initiate the payment and save in the db
     public PaymentResponseDto initiatePayment(PaymentRequestDto paymentRequestDto){
@@ -65,20 +66,20 @@ public class PaymentService {
         try {
             //Fast path - try gateway call with timeout
             boolean processed = tryImmediateProcessing(saved);
-            if(processed){
-                mapToResponse(saved);
-            }
-            else{
-                saved.setStatus(PaymentStatus.PROCESSING);
-                paymentRepository.save(saved);
-                jobQueue.enqueue(PaymentJob.of(saved.getId()));
-                return mapToResponse(saved);
+            if(!processed) {
+                // Check DB status before enqueuing
+                Payment fresh = paymentRepository.findById(saved.getId()).orElseThrow();
+                if (fresh.getStatus() != PaymentStatus.SUCCESS) {
+                    fresh.setStatus(PaymentStatus.PROCESSING);
+                    paymentRepository.save(fresh);
+                    jobQueue.enqueue(PaymentJob.of(fresh.getId(), fresh.getAmount().intValue()));
+                }
             }
         }
         catch (Exception e){
             saved.setStatus(PaymentStatus.PROCESSING);
             paymentRepository.save(saved);
-            jobQueue.enqueue(PaymentJob.of(saved.getId()));
+            jobQueue.enqueue(PaymentJob.of(saved.getId(),saved.getAmount().intValue()));
             return mapToResponse(saved);
         }
         return mapToResponse(saved);

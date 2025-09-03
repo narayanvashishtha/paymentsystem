@@ -22,6 +22,8 @@ public class PaymentJob implements Serializable {
     private static final long serialVersionUID = 1L;
     @NotNull
     private UUID paymentId;
+    @NotNull
+    private int amount;
     @Min(0)
     @Builder.Default
     private int retryCount = 0;
@@ -41,8 +43,8 @@ public class PaymentJob implements Serializable {
     }
 
     // Convenience factory method
-    public static PaymentJob of(UUID paymentId) {
-        return PaymentJob.builder().paymentId(paymentId).build();
+    public static PaymentJob of(UUID paymentId, int amount) {
+        return PaymentJob.builder().paymentId(paymentId).amount(amount).build();
     }
 
 }
