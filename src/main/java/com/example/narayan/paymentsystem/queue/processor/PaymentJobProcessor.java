@@ -62,6 +62,7 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
             payment.setFailureReason(e.getMessage());
             paymentRepository.save(payment);
 
+            jobQueueService.recordJobStats(false);
             return new JobResult(JobStatus.FAILED, "Payment failed: " + e.getMessage());
         }
     }
