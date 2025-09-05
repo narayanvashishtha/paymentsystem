@@ -7,6 +7,7 @@ import com.example.narayan.paymentsystem.queue.jobs.JobResult;
 import com.example.narayan.paymentsystem.queue.jobs.JobStatus;
 import com.example.narayan.paymentsystem.queue.jobs.PaymentJob;
 import com.example.narayan.paymentsystem.repository.PaymentRepository;
+import com.example.narayan.paymentsystem.service.JobQueueService;
 import com.example.narayan.paymentsystem.service.PaymentGatewayService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -20,6 +21,8 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
     PaymentGatewayService paymentGatewayService;
     @Autowired
     JobQueue jobQueue;
+    @Autowired
+    JobQueueService jobQueueService;
 
     public void startProcessor() {
         Thread worker = new Thread(() -> {
@@ -52,6 +55,7 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
             payment.setStatus(PaymentStatus.SUCCESS);
             paymentRepository.save(payment);
 
+            jobQueueService.recordJobStats(true);
             return new JobResult(JobStatus.COMPLETED, "Payment processed successfully");
         } catch (Exception e) {
             payment.setStatus(PaymentStatus.FAILED);

@@ -1,9 +1,7 @@
 package com.example.narayan.paymentsystem.service;
 
-import com.example.narayan.paymentsystem.queue.JobQueue;
-import com.example.narayan.paymentsystem.queue.jobs.JobStatus;
+import com.example.narayan.paymentsystem.queue.RedisPriorityJobQueue;
 import com.example.narayan.paymentsystem.queue.jobs.PaymentJob;
-import com.example.narayan.paymentsystem.queue.jobs.JobResult;
 import com.example.narayan.paymentsystem.queue.processor.PaymentJobProcessor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -12,38 +10,31 @@ import org.springframework.stereotype.Component;
 public class JobQueueService {
 
     @Autowired
-    JobQueue jobQueue;
+    RedisPriorityJobQueue jobQueue;
     @Autowired
     PaymentJobProcessor paymentJobProcessor;
 
 
     private int processedCount = 0;
     private int failedCount = 0;
+    private boolean workerStarted = false;
 
     //Add job into queue
     public void enqueuePayment(PaymentJob job) {
         jobQueue.enqueue(job);
+        if (!workerStarted) {
+            paymentJobProcessor.startProcessor();
+            workerStarted = true;
+            System.out.println("Worker started after first job enqueued!");
+        }
     }
 
     //Take next job and process
-    public JobResult processNextJob() {
-        try {
-            PaymentJob job = jobQueue.dequeue();
-
-            if (job == null) {
-                Thread.sleep(1000);
-                return new JobResult(JobStatus.SKIPPED, "No jobs available, worker is idle");
-            }
-
-            JobResult result = paymentJobProcessor.process(job);
+    public void recordJobStats(boolean status) {
+        if (status) {
             processedCount++;
-            return result;
-        } catch (Exception e) {
+        } else {
             failedCount++;
-            return new JobResult(
-                    com.example.narayan.paymentsystem.queue.jobs.JobStatus.FAILED,
-                    "Error processing job: " + e.getMessage()
-            );
         }
     }
 
