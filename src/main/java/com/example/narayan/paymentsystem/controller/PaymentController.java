@@ -2,15 +2,12 @@ package com.example.narayan.paymentsystem.controller;
 
 import com.example.narayan.paymentsystem.dto.PaymentRequestDto;
 import com.example.narayan.paymentsystem.dto.PaymentResponseDto;
-import com.example.narayan.paymentsystem.model.Payment;
-import com.example.narayan.paymentsystem.service.PaymentGatewayService;
 import com.example.narayan.paymentsystem.service.PaymentService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
 import java.util.UUID;
 
 @RestController
@@ -19,18 +16,16 @@ public class PaymentController {
 
     @Autowired
     PaymentService paymentService;
-    @Autowired
-    PaymentGatewayService paymentGatewayService;
 
     @PostMapping("/payments")
-    private ResponseEntity<PaymentResponseDto> makepayment(@Valid @RequestBody PaymentRequestDto paymentRequestDto) {
+    public ResponseEntity<PaymentResponseDto> makepayment(@Valid @RequestBody PaymentRequestDto paymentRequestDto) {
         PaymentResponseDto responseDto = paymentService.initiatePayment(paymentRequestDto);
 
         return ResponseEntity.ok(responseDto);
     }
 
     @GetMapping("/payments/{paymentId}")
-    private ResponseEntity<PaymentResponseDto> getstatus(@PathVariable UUID paymentId) {
+    public ResponseEntity<PaymentResponseDto> getstatus(@PathVariable UUID paymentId) {
         PaymentResponseDto response = paymentService.getPaymentById(paymentId);
         return ResponseEntity.ok(response);
     }

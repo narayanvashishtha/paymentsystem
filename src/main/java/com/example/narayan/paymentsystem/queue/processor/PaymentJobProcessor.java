@@ -1,5 +1,6 @@
 package com.example.narayan.paymentsystem.queue.processor;
 
+import com.example.narayan.paymentsystem.config.RedisConfig;
 import com.example.narayan.paymentsystem.model.Payment;
 import com.example.narayan.paymentsystem.model.enums.PaymentStatus;
 import com.example.narayan.paymentsystem.queue.JobQueue;
@@ -11,6 +12,9 @@ import com.example.narayan.paymentsystem.service.JobQueueService;
 import com.example.narayan.paymentsystem.service.PaymentGatewayService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import redis.clients.jedis.exceptions.JedisConnectionException;
+
+import java.time.LocalDateTime;
 
 @Component
 public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
@@ -22,24 +26,31 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
     @Autowired
     JobQueue jobQueue;
     @Autowired
-    JobQueueService jobQueueService;
+    RedisConfig redisConfig;
 
     public void startProcessor() {
         Thread worker = new Thread(() -> {
             while (true) {
                 try {
                     PaymentJob job = jobQueue.dequeue();
-                    if (job == null) {
-                        //No job available, wait a bit before polling again
-                        Thread.sleep(1000);
-                        continue;
+                    if (job != null){
+                        process(job);
                     }
-                    process(job);
-                } catch (Exception e) {
+                    else Thread.sleep(1000);
+                }
+                catch (JedisConnectionException e) {
+                    redisConfig.jedis().connect();
+                    System.err.println("⚠️ Redis down, retrying in 2s");
+                    try {
+                        Thread.sleep(2000);
+                    } catch (InterruptedException ex) {
+                        throw new RuntimeException(ex);
+                    }
+                }
+                catch (Exception e) {
                     e.printStackTrace();
                 }
             }
-
         });
         worker.setDaemon(true);
         worker.start();
@@ -53,16 +64,15 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
         try {
             paymentGatewayService.processPayment(payment.getId());
             payment.setStatus(PaymentStatus.SUCCESS);
+            payment.setCompletedAt(LocalDateTime.now());
             paymentRepository.save(payment);
 
-            jobQueueService.recordJobStats(true);
             return new JobResult(JobStatus.COMPLETED, "Payment processed successfully");
         } catch (Exception e) {
             payment.setStatus(PaymentStatus.FAILED);
             payment.setFailureReason(e.getMessage());
             paymentRepository.save(payment);
 
-            jobQueueService.recordJobStats(false);
             return new JobResult(JobStatus.FAILED, "Payment failed: " + e.getMessage());
         }
     }

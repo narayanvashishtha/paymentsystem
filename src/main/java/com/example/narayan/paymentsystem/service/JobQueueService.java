@@ -25,17 +25,12 @@ public class JobQueueService {
         if (!workerStarted) {
             paymentJobProcessor.startProcessor();
             workerStarted = true;
-            System.out.println("Worker started after first job enqueued!");
         }
     }
 
     //Take next job and process
     public void recordJobStats(boolean status) {
-        if (status) {
-            processedCount++;
-        } else {
-            failedCount++;
-        }
+
     }
 
     public String getQueueStats() {

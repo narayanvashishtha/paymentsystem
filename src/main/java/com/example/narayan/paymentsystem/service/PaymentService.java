@@ -64,24 +64,26 @@ public class PaymentService {
         Payment saved = paymentRepository.save(payment);
 
         try {
-            //Fast path - try gateway call with timeout
-            boolean forcequeue = true;  //for queue test
-            boolean processed = forcequeue ? false :tryImmediateProcessing(saved);
+            boolean processed = tryImmediateProcessing(saved);
 
             if(!processed) {
-                // Check DB status before enqueuing
                 Payment fresh = paymentRepository.findById(saved.getId()).orElseThrow();
-                if (fresh.getStatus() != PaymentStatus.SUCCESS) {
-                    fresh.setStatus(PaymentStatus.PROCESSING);
-                    paymentRepository.save(fresh);
-                    jobQueue.enqueuePayment(PaymentJob.of(fresh.getId(), fresh.getAmount().intValue()));
-                }
+                fresh.setStatus(PaymentStatus.PROCESSING);
+                paymentRepository.save(fresh);
+
+                // Create job and enqueue
+                PaymentJob job = PaymentJob.of(fresh.getId(), fresh.getAmount().intValue());
+                jobQueue.enqueuePayment(job);
+
+                return mapToResponse(fresh);
             }
         }
         catch (Exception e){
+            System.err.println("Error in payment processing: " + e.getMessage());
+            e.printStackTrace();
             saved.setStatus(PaymentStatus.PROCESSING);
             paymentRepository.save(saved);
-            jobQueue.enqueuePayment(PaymentJob.of(saved.getId(),saved.getAmount().intValue()));
+            jobQueue.enqueuePayment(PaymentJob.of(saved.getId(), saved.getAmount().intValue()));
             return mapToResponse(saved);
         }
         return mapToResponse(saved);
@@ -143,24 +145,18 @@ public class PaymentService {
         paymentResponseDto.setAmount(payment.getAmount());
         paymentResponseDto.setCurrency(payment.getCurrency());
 
+
         return paymentResponseDto;
     }
 
     public String buildPaymentMessage(Payment payment) {
 
-        switch (payment.getStatus()) {
-            case PENDING:
-                return ("Payment is pending. Awaiting processing.");
-            case PROCESSING:
-                return ("Payment is currently being processed.");
-            case SUCCESS:
-                return ("Payment was successful.");
-            case FAILED:
-                return (payment.getFailureReason() != null ? payment.getFailureReason() : "Payment failed.");
-            case CANCELLED:
-                return ("Payment was cancelled.");
-            default:
-                return ("Unknown payment status.");
-        }
+        return switch (payment.getStatus()) {
+            case PENDING -> ("Payment is pending. Awaiting processing.");
+            case PROCESSING -> ("Payment is currently being processed.");
+            case SUCCESS -> ("Payment was successful.");
+            case FAILED -> (payment.getFailureReason() != null ? payment.getFailureReason() : "Payment failed.");
+            case CANCELLED -> ("Payment was cancelled.");
+        };
     }
 }

@@ -19,6 +19,5 @@ public class PaymentsystemApplication {
 	@PostConstruct
 	public void startWorkers() {
 		paymentJobProcessor.startProcessor();
-		System.out.println("🚀 Payment job processor started!");
 	}
 }

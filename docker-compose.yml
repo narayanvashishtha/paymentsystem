@@ -34,6 +34,12 @@ services:
     container_name: paymentsystem-redis
     ports:
       - "6379:6379"
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
 
 volumes:
   pgdata:
