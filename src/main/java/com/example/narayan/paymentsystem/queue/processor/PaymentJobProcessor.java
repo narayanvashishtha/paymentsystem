@@ -1,17 +1,17 @@
 package com.example.narayan.paymentsystem.queue.processor;
 
-import com.example.narayan.paymentsystem.config.RedisConfig;
 import com.example.narayan.paymentsystem.model.Payment;
 import com.example.narayan.paymentsystem.model.enums.PaymentStatus;
 import com.example.narayan.paymentsystem.queue.JobQueue;
+import com.example.narayan.paymentsystem.queue.jobs.ExponentialBackoff;
 import com.example.narayan.paymentsystem.queue.jobs.JobResult;
 import com.example.narayan.paymentsystem.queue.jobs.JobStatus;
 import com.example.narayan.paymentsystem.queue.jobs.PaymentJob;
 import com.example.narayan.paymentsystem.repository.PaymentRepository;
-import com.example.narayan.paymentsystem.service.JobQueueService;
 import com.example.narayan.paymentsystem.service.PaymentGatewayService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.exceptions.JedisConnectionException;
 
 import java.time.LocalDateTime;
@@ -26,20 +26,14 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
     @Autowired
     JobQueue jobQueue;
     @Autowired
-    RedisConfig redisConfig;
+    JedisPool jedisPool;
 
     public void startProcessor() {
         Thread worker = new Thread(() -> {
             while (true) {
-                try {
-                    PaymentJob job = jobQueue.dequeue();
-                    if (job != null){
-                        process(job);
-                    }
-                    else Thread.sleep(1000);
-                }
-                catch (JedisConnectionException e) {
-                    redisConfig.jedis().connect();
+                try (var jedis = jedisPool.getResource()) {
+                    jedis.ping(); // check Redis
+                } catch (JedisConnectionException e) {
                     System.err.println("⚠️ Redis down, retrying in 2s");
                     try {
                         Thread.sleep(2000);
@@ -71,7 +65,9 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
         } catch (Exception e) {
             payment.setStatus(PaymentStatus.FAILED);
             payment.setFailureReason(e.getMessage());
+            payment.setCompletedAt(LocalDateTime.now());
             paymentRepository.save(payment);
+            ExponentialBackoff exponentialBackoff = new ExponentialBackoff(100,5000,2.0);
 
             return new JobResult(JobStatus.FAILED, "Payment failed: " + e.getMessage());
         }

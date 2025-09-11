@@ -6,14 +6,12 @@ import com.example.narayan.paymentsystem.exception.PaymentNotFound;
 import com.example.narayan.paymentsystem.model.Payment;
 import com.example.narayan.paymentsystem.model.enums.PaymentMethodType;
 import com.example.narayan.paymentsystem.model.enums.PaymentStatus;
-import com.example.narayan.paymentsystem.queue.JobQueue;
-import com.example.narayan.paymentsystem.queue.RedisPriorityJobQueue;
 import com.example.narayan.paymentsystem.queue.jobs.PaymentJob;
 import com.example.narayan.paymentsystem.repository.PaymentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.AutoConfigureOrder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.concurrent.*;
 
@@ -59,6 +57,7 @@ public class PaymentService {
             payment.setIdempotencyKey(UUID.randomUUID().toString());
         }
         payment.setUser_id(UUID.randomUUID());  // from authenticated session
+        payment.setCreatedAt(LocalDateTime.now());
         payment.setStatus(PaymentStatus.PENDING);
 
         Payment saved = paymentRepository.save(payment);
@@ -69,6 +68,7 @@ public class PaymentService {
             if(!processed) {
                 Payment fresh = paymentRepository.findById(saved.getId()).orElseThrow();
                 fresh.setStatus(PaymentStatus.PROCESSING);
+
                 paymentRepository.save(fresh);
 
                 // Create job and enqueue
@@ -82,7 +82,9 @@ public class PaymentService {
             System.err.println("Error in payment processing: " + e.getMessage());
             e.printStackTrace();
             saved.setStatus(PaymentStatus.PROCESSING);
+
             paymentRepository.save(saved);
+
             jobQueue.enqueuePayment(PaymentJob.of(saved.getId(), saved.getAmount().intValue()));
             return mapToResponse(saved);
         }
