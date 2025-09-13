@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Data
@@ -39,7 +40,7 @@ public class PaymentJob implements Serializable {
     @Min(0)
     @Builder.Default
     @JsonProperty("maxTries")
-    private int maxTries = 5;
+    private int maxTries = 4; // Changed to 4 as per requirement
 
     @Builder.Default
     @JsonProperty("createdAt")
@@ -49,6 +50,16 @@ public class PaymentJob implements Serializable {
     @JsonProperty("priority")
     private Priority priority = Priority.NORMAL;
 
+    // New fields for retry logic
+    @JsonProperty("scheduledFor")
+    private LocalDateTime scheduledFor = LocalDateTime.now();
+
+    @JsonProperty("lastError")
+    private String lastError;
+
+    @JsonProperty("jobId")
+    private String jobId = UUID.randomUUID().toString();
+
     public enum Priority{
         LOW,
         NORMAL,
@@ -56,8 +67,26 @@ public class PaymentJob implements Serializable {
         HIGH
     }
 
+    // Helper methods for retry logic
+    public boolean hasRetriesRemaining() {
+        return retryCount < maxTries;
+    }
+
+    public void incrementRetryCount() {
+        this.retryCount++;
+    }
+
+    public boolean isReadyToProcess() {
+        return LocalDateTime.now().isAfter(scheduledFor) ||
+                LocalDateTime.now().isEqual(scheduledFor);
+    }
+
     // Convenience factory method
     public static PaymentJob of(UUID paymentId, int amount) {
-        return PaymentJob.builder().paymentId(paymentId).amount(amount).build();
+        return PaymentJob.builder()
+                .paymentId(paymentId)
+                .amount(amount)
+                .jobId(UUID.randomUUID().toString())
+                .build();
     }
 }

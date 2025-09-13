@@ -5,6 +5,8 @@ public enum JobStatus {
     PROCESSING,
     COMPLETED,
     FAILED,
+    RETRYING,        // Added for retry logic
+    DEAD_LETTERED,   // Added for dead letter queue
     RETRY_SCHEDULED,
     SKIPPED
 }
