@@ -5,6 +5,9 @@ import com.example.narayan.paymentsystem.model.enums.PaymentStatus;
 import com.example.narayan.paymentsystem.queue.DeadLetterQueue;
 import com.example.narayan.paymentsystem.queue.JobQueue;
 import com.example.narayan.paymentsystem.queue.failure.ExponentialBackoff;
+import com.example.narayan.paymentsystem.queue.failure.FailureAnalysis;
+import com.example.narayan.paymentsystem.queue.failure.FailureCategory;
+import com.example.narayan.paymentsystem.queue.failure.FailureTrackingService;
 import com.example.narayan.paymentsystem.queue.jobs.JobResult;
 import com.example.narayan.paymentsystem.queue.jobs.JobStatus;
 import com.example.narayan.paymentsystem.queue.jobs.PaymentJob;
@@ -39,6 +42,9 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private FailureTrackingService failureTrackingService;
 
     // Retry configuration - matches the requirement: 1s, 2s, 4s, 8s
     private static final long INITIAL_BACKOFF_MS = 1000;  // 1 second
@@ -131,6 +137,9 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
         } catch (Exception e) {
             System.err.println("❌ Payment processing failed: " + e.getMessage());
 
+            // Record failure with detailed analysis
+            failureTrackingService.recordFailure(job, e);
+
             // Store the error in the job for debugging
             job.setLastError(e.getMessage());
 
@@ -140,12 +149,18 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
     }
 
     /**
-     * Handle job failure with retry logic
+     * Handle job failure with enhanced retry logic and failure analysis
      */
     private JobResult handleJobFailure(PaymentJob job, Exception error) {
+        // Analyze the failure to determine if it's retryable
+        FailureAnalysis analysis = FailureAnalysis.analyze(error, job.getRetryCount() + 1);
+
+        System.out.println("🔍 Failure Analysis: " + analysis.getAnalysisReport());
+
         job.incrementRetryCount();
 
-        if (job.hasRetriesRemaining()) {
+        // Check if failure is retryable and we have retries remaining
+        if (analysis.isRetryable() && job.hasRetriesRemaining()) {
             // Calculate backoff delay for next attempt
             long backoffMs = exponentialBackoff.calculateBackoffMillis(job.getRetryCount());
             LocalDateTime nextAttemptTime = LocalDateTime.now().plusSeconds(backoffMs / 1000);
@@ -153,42 +168,54 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
 
             // Requeue the job for retry
             try {
-                jobQueue.enqueue(job); // Use your existing JobQueue
+                jobQueue.enqueue(job);
 
                 System.out.println("🔄 Job " + job.getJobId() + " scheduled for retry " +
-                        job.getRetryCount() + " in " + (backoffMs/1000) + " seconds");
+                        job.getRetryCount() + " in " + (backoffMs/1000) + " seconds (Category: " +
+                        analysis.getCategory() + ")");
 
                 return new JobResult(JobStatus.RETRYING,
-                        "Job failed, retry " + job.getRetryCount() + " scheduled: " + error.getMessage());
+                        "Job failed (" + analysis.getCategory() + "), retry " + job.getRetryCount() +
+                                " scheduled: " + error.getMessage());
 
             } catch (Exception e) {
                 System.err.println("Failed to requeue job for retry: " + e.getMessage());
-                // If we can't requeue, send to dead letter queue
-                moveToDeadLetterQueue(job, "Failed to requeue for retry: " + e.getMessage());
+                moveToDeadLetterQueue(job, "Failed to requeue for retry: " + e.getMessage(), analysis);
                 updatePaymentToFailed(job.getPaymentId().toString(), e.getMessage());
                 return new JobResult(JobStatus.DEAD_LETTERED, "Job failed and couldn't be requeued");
             }
         }
         else {
-            // No more retries remaining, move to dead letter queue
-            moveToDeadLetterQueue(job, "Max retries exceeded (" + job.getRetryCount() + "). Last error: " + error.getMessage());
+            // Either not retryable or no more retries remaining
+            String reason = !analysis.isRetryable() ?
+                    "Non-retryable failure (" + analysis.getCategory() + "): " + error.getMessage() :
+                    "Max retries exceeded (" + job.getRetryCount() + "). Last error: " + error.getMessage();
 
-            // Update payment status to failed
+            moveToDeadLetterQueue(job, reason, analysis);
             updatePaymentToFailed(job.getPaymentId().toString(), error.getMessage());
 
-            System.out.println("🪦 Job " + job.getJobId() + " moved to dead letter queue after " +
-                    job.getRetryCount() + " attempts");
+            System.out.println("🪦 Job " + job.getJobId() + " moved to dead letter queue. Reason: " +
+                    analysis.getCategory() + " - " +
+                    (analysis.isRetryable() ? "Max retries exceeded" : "Non-retryable failure"));
 
-            return new JobResult(JobStatus.DEAD_LETTERED,
-                    "Job failed after " + job.getRetryCount() + " attempts: " + error.getMessage());
+            return new JobResult(JobStatus.DEAD_LETTERED, reason);
         }
     }
 
     /**
-     * Move job to dead letter queue
+     * Move job to dead letter queue with failure analysis
      */
-    private void moveToDeadLetterQueue(PaymentJob job, String reason) {
-        deadLetterQueue.addToDeadLetterQueue(job, reason);
+    private void moveToDeadLetterQueue(PaymentJob job, String reason, FailureAnalysis analysis) {
+        try {
+            // Enhanced reason with failure category
+            String enhancedReason = String.format("%s | Category: %s | Retryable: %s | Analysis: %s",
+                    reason, analysis.getCategory(), analysis.isRetryable(),
+                    analysis.getErrorMessage());
+
+            deadLetterQueue.addToDeadLetterQueue(job, enhancedReason);
+        } catch (Exception e) {
+            deadLetterQueue.addToDeadLetterQueue(job, reason); // Fallback to original method
+        }
     }
 
     /**
@@ -212,39 +239,6 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
     }
 
     /**
-     * Check if an exception is retryable or should go straight to dead letter queue
-     */
-    private boolean isRetryableException(Exception e) {
-        // Network-related exceptions are usually retryable
-        if (e instanceof java.net.SocketTimeoutException ||
-                e instanceof java.net.ConnectException ||
-                e instanceof java.io.IOException) {
-            return true;
-        }
-
-        // Check error message for retryable conditions
-        String message = e.getMessage().toLowerCase();
-        if (message.contains("timeout") ||
-                message.contains("connection") ||
-                message.contains("network") ||
-                message.contains("service unavailable") ||
-                message.contains("rate limit")) {
-            return true;
-        }
-
-        // Non-retryable: validation errors, not found, etc.
-        if (message.contains("not found") ||
-                message.contains("invalid") ||
-                message.contains("unauthorized") ||
-                message.contains("forbidden")) {
-            return false;
-        }
-
-        // Default to retryable for unknown exceptions
-        return true;
-    }
-
-    /**
      * Get processor statistics
      */
     public int getProcessorStats() {
@@ -254,5 +248,12 @@ public class PaymentJobProcessor implements JobProcessor<PaymentJob> {
             System.err.println("Failed to get processor stats: " + e.getMessage());
             return 0;
         }
+    }
+
+    /**
+     * Get failure analysis report
+     */
+    public String getFailureAnalysisReport() {
+        return failureTrackingService.generateFailureReport();
     }
 }
